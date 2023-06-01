@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "474903482354",
+    "project_id": "objectdetectionproject-3c410",
+    "storage_bucket": "objectdetectionproject-3c410.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:474903482354:android:abf95855bc34aead3fe56b",
+        "android_client_info": {
+          "package_name": "com.example.exercise"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD5l5ZwLIxMdD7gOG4DQqVMWVkCAE6OubI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

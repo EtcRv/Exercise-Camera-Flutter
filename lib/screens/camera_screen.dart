@@ -1,14 +1,23 @@
 import 'dart:developer';
 import 'dart:io';
+import 'package:flutter_pytorch/pigeon.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:camera/camera.dart';
 import 'package:exercise/screens/preview_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_pytorch/pigeon.dart';
 import 'package:video_player/video_player.dart';
+import 'package:image_cropper/image_cropper.dart';
+import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
+import 'painters/object_detector_painter.dart';
+import 'package:flutter_pytorch/flutter_pytorch.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:gallery_saver/gallery_saver.dart';
+import 'package:flutter_storage_path/flutter_storage_path.dart';
 
 import '../main.dart';
 
@@ -19,6 +28,9 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen>
     with WidgetsBindingObserver {
+  late ModelObjectDetection _objectModel;
+  List<ResultObjectDetection?> objDetect = [];
+
   CameraController? controller;
   VideoPlayerController? videoController;
 
@@ -46,6 +58,31 @@ class _CameraScreenState extends State<CameraScreen>
   final resolutionPresets = ResolutionPreset.values;
 
   ResolutionPreset currentResolutionPreset = ResolutionPreset.high;
+
+  @override
+  void initState() {
+    // Hide the status bar in Android
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
+    getPermissionStatus();
+    super.initState();
+    loadModel();
+  }
+
+  //load your model
+  Future loadModel() async {
+    String pathObjectDetectionModel = "assets/models/yolov5s.torchscript";
+    try {
+      _objectModel = await FlutterPytorch.loadObjectDetectionModel(
+          pathObjectDetectionModel, 80, 640, 640,
+          labelPath: "assets/labels/labels_objectDetection_Coco.txt");
+    } catch (e) {
+      if (e is PlatformException) {
+        print("only supported for android, Error is $e");
+      } else {
+        print("Error is $e");
+      }
+    }
+  }
 
   getPermissionStatus() async {
     await Permission.camera.request();
@@ -86,7 +123,6 @@ class _CameraScreenState extends State<CameraScreen>
       if (recentFileName.contains('.mp4')) {
         _videoFile = File('${directory.path}/$recentFileName');
         _imageFile = null;
-        _startVideoPlayer();
       } else {
         _imageFile = File('${directory.path}/$recentFileName');
         _videoFile = null;
@@ -96,6 +132,41 @@ class _CameraScreenState extends State<CameraScreen>
     }
   }
 
+  // Add the below function inside your working class
+  Future _cropImage(
+      File imageFile, List<ResultObjectDetection?> recognitions) async {
+    if (imageFile != null) {
+      _objectModel.renderBoxesOnImage(imageFile, recognitions);
+      var rect = recognitions[0]!.rect;
+      CroppedFile? cropped = await ImageCropper().cropImage(
+        sourcePath: imageFile!.path,
+        aspectRatioPresets: [
+          CropAspectRatioPreset.square,
+          CropAspectRatioPreset.ratio3x2,
+          CropAspectRatioPreset.original,
+          CropAspectRatioPreset.ratio4x3,
+          CropAspectRatioPreset.ratio16x9
+        ],
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop',
+            cropGridColor: Colors.black,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false,
+          ),
+          IOSUiSettings(title: 'Crop')
+        ],
+      );
+
+      if (cropped != null) {
+        setState(() {
+          _imageFile = File(cropped.path);
+        });
+      }
+    }
+  }
+
+  ImagePicker _picker = ImagePicker();
   Future<XFile?> takePicture() async {
     final CameraController? cameraController = controller;
 
@@ -105,95 +176,15 @@ class _CameraScreenState extends State<CameraScreen>
     }
 
     try {
-      XFile file = await cameraController.takePicture();
-      return file;
+      XFile image = await cameraController.takePicture();
+      File imageFile = File(image!.path);
+
+      return image;
     } on CameraException catch (e) {
       if (kDebugMode) {
         print('Error occured while taking picture: $e');
       }
       return null;
-    }
-  }
-
-  Future<void> _startVideoPlayer() async {
-    if (_videoFile != null) {
-      videoController = VideoPlayerController.file(_videoFile!);
-      await videoController!.initialize().then((_) {
-        // Ensure the first frame is shown after the video is initialized,
-        // even before the play button has been pressed.
-        setState(() {});
-      });
-      await videoController!.setLooping(true);
-      await videoController!.play();
-    }
-  }
-
-  Future<void> startVideoRecording() async {
-    final CameraController? cameraController = controller;
-
-    if (controller!.value.isRecordingVideo) {
-      // A recording has already started, do nothing.
-      return;
-    }
-
-    try {
-      await cameraController!.startVideoRecording();
-      setState(() {
-        _isRecordingInProgress = true;
-        print(_isRecordingInProgress);
-      });
-    } on CameraException catch (e) {
-      if (kDebugMode) {
-        print('Error starting to record video: $e');
-      }
-    }
-  }
-
-  Future<XFile?> stopVideoRecording() async {
-    if (!controller!.value.isRecordingVideo) {
-      // Recording is already is stopped state
-      return null;
-    }
-
-    try {
-      XFile file = await controller!.stopVideoRecording();
-      setState(() {
-        _isRecordingInProgress = false;
-      });
-      return file;
-    } on CameraException catch (e) {
-      if (kDebugMode) {
-        print('Error stopping video recording: $e');
-      }
-      return null;
-    }
-  }
-
-  Future<void> pauseVideoRecording() async {
-    if (!controller!.value.isRecordingVideo) {
-      // Video recording is not in progress
-      return;
-    }
-
-    try {
-      await controller!.pauseVideoRecording();
-    } on CameraException catch (e) {
-      if (kDebugMode) {
-        print('Error pausing video recording: $e');
-      }
-    }
-  }
-
-  Future<void> resumeVideoRecording() async {
-    if (!controller!.value.isRecordingVideo) {
-      // No video recording was in progress
-      return;
-    }
-
-    try {
-      await controller!.resumeVideoRecording();
-    } on CameraException catch (e) {
-      print('Error resuming video recording: $e');
     }
   }
 
@@ -269,14 +260,6 @@ class _CameraScreenState extends State<CameraScreen>
   }
 
   @override
-  void initState() {
-    // Hide the status bar in Android
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
-    getPermissionStatus();
-    super.initState();
-  }
-
-  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final CameraController? cameraController = controller;
 
@@ -314,25 +297,17 @@ class _CameraScreenState extends State<CameraScreen>
                           children: [
                             CameraPreview(
                               controller!,
-                              child: LayoutBuilder(builder:
-                                  (BuildContext context,
-                                      BoxConstraints constraints) {
-                                return GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTapDown: (details) =>
-                                      onViewFinderTap(details, constraints),
-                                );
-                              }),
+                              child: LayoutBuilder(
+                                builder: (BuildContext context,
+                                    BoxConstraints constraints) {
+                                  return GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTapDown: (details) =>
+                                        onViewFinderTap(details, constraints),
+                                  );
+                                },
+                              ),
                             ),
-                            // TODO: Uncomment to preview the overlay
-                            // Center(
-                            //   child: Image.asset(
-                            //     'assets/camera_aim.png',
-                            //     color: Colors.greenAccent,
-                            //     width: 150,
-                            //     height: 150,
-                            //   ),
-                            // ),
                             Padding(
                               padding: const EdgeInsets.fromLTRB(
                                 16.0,
@@ -475,14 +450,7 @@ class _CameraScreenState extends State<CameraScreen>
                                     children: [
                                       InkWell(
                                         onTap: _isRecordingInProgress
-                                            ? () async {
-                                                if (controller!
-                                                    .value.isRecordingPaused) {
-                                                  await resumeVideoRecording();
-                                                } else {
-                                                  await pauseVideoRecording();
-                                                }
-                                              }
+                                            ? () async {}
                                             : () {
                                                 setState(() {
                                                   _isCameraInitialized = false;
@@ -529,35 +497,7 @@ class _CameraScreenState extends State<CameraScreen>
                                       ),
                                       InkWell(
                                         onTap: _isVideoCameraSelected
-                                            ? () async {
-                                                if (_isRecordingInProgress) {
-                                                  XFile? rawVideo =
-                                                      await stopVideoRecording();
-                                                  File videoFile =
-                                                      File(rawVideo!.path);
-
-                                                  int currentUnix = DateTime
-                                                          .now()
-                                                      .millisecondsSinceEpoch;
-
-                                                  final directory =
-                                                      await getApplicationDocumentsDirectory();
-
-                                                  String fileFormat = videoFile
-                                                      .path
-                                                      .split('.')
-                                                      .last;
-
-                                                  _videoFile =
-                                                      await videoFile.copy(
-                                                    '${directory.path}/$currentUnix.$fileFormat',
-                                                  );
-
-                                                  _startVideoPlayer();
-                                                } else {
-                                                  await startVideoRecording();
-                                                }
-                                              }
+                                            ? () async {}
                                             : () async {
                                                 XFile? rawImage =
                                                     await takePicture();
@@ -582,6 +522,47 @@ class _CameraScreenState extends State<CameraScreen>
                                                 await imageFile.copy(
                                                   '${directory.path}/$currentUnix.$fileFormat',
                                                 );
+
+                                                print(
+                                                    "imageFile.path: ${imageFile.path}");
+                                                print(
+                                                    "rawImage: ${rawImage.path}");
+
+                                                await GallerySaver.saveImage(
+                                                    rawImage.path);
+
+                                                // objDetect = await _objectModel
+                                                //     .getImagePredictionList(
+                                                //         await File(
+                                                //                 '/storage/emulated/0/DCIM/Camera/${imageFile.path.split('/').last}')
+                                                //             .readAsBytes());
+                                                // print("objDetect: $objDetect");
+                                                // objDetect.forEach((element) {
+                                                //   print({
+                                                //     "score": element?.score,
+                                                //     "className":
+                                                //         element?.className,
+                                                //     "class":
+                                                //         element?.classIndex,
+                                                //     "rect": {
+                                                //       "left":
+                                                //           element?.rect.left,
+                                                //       "top": element?.rect.top,
+                                                //       "width":
+                                                //           element?.rect.width,
+                                                //       "height":
+                                                //           element?.rect.height,
+                                                //       "right":
+                                                //           element?.rect.right,
+                                                //       "bottom":
+                                                //           element?.rect.bottom,
+                                                //     },
+                                                //   });
+                                                // });
+                                                // if (objDetect.length > 0) {
+                                                //   _cropImage(
+                                                //       imageFile, objDetect);
+                                                // }
 
                                                 refreshAlreadyCapturedImages();
                                               },
