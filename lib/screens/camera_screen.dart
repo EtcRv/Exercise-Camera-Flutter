@@ -13,11 +13,13 @@ import 'package:flutter_pytorch/pigeon.dart';
 import 'package:video_player/video_player.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
+import 'crop_screen.dart';
 import 'painters/object_detector_painter.dart';
 import 'package:flutter_pytorch/flutter_pytorch.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gallery_saver/gallery_saver.dart';
 import 'package:flutter_storage_path/flutter_storage_path.dart';
+import 'package:crop_your_image/crop_your_image.dart';
 
 import '../main.dart';
 
@@ -176,7 +178,8 @@ class _CameraScreenState extends State<CameraScreen>
     }
 
     try {
-      XFile image = await cameraController.takePicture();
+      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+      // XFile image = await cameraController.takePicture();
       File imageFile = File(image!.path);
 
       return image;
@@ -523,46 +526,57 @@ class _CameraScreenState extends State<CameraScreen>
                                                   '${directory.path}/$currentUnix.$fileFormat',
                                                 );
 
-                                                print(
-                                                    "imageFile.path: ${imageFile.path}");
-                                                print(
-                                                    "rawImage: ${rawImage.path}");
+                                                var imageUint8ListData =
+                                                    await rawImage
+                                                        .readAsBytes();
 
-                                                await GallerySaver.saveImage(
-                                                    rawImage.path);
-
-                                                // objDetect = await _objectModel
-                                                //     .getImagePredictionList(
-                                                //         await File(
-                                                //                 '/storage/emulated/0/DCIM/Camera/${imageFile.path.split('/').last}')
-                                                //             .readAsBytes());
-                                                // print("objDetect: $objDetect");
-                                                // objDetect.forEach((element) {
-                                                //   print({
-                                                //     "score": element?.score,
-                                                //     "className":
-                                                //         element?.className,
-                                                //     "class":
-                                                //         element?.classIndex,
-                                                //     "rect": {
-                                                //       "left":
-                                                //           element?.rect.left,
-                                                //       "top": element?.rect.top,
-                                                //       "width":
-                                                //           element?.rect.width,
-                                                //       "height":
-                                                //           element?.rect.height,
-                                                //       "right":
-                                                //           element?.rect.right,
-                                                //       "bottom":
-                                                //           element?.rect.bottom,
-                                                //     },
-                                                //   });
-                                                // });
-                                                // if (objDetect.length > 0) {
-                                                //   _cropImage(
-                                                //       imageFile, objDetect);
-                                                // }
+                                                objDetect = await _objectModel
+                                                    .getImagePredictionList(
+                                                        await rawImage
+                                                            .readAsBytes());
+                                                print("objDetect: $objDetect");
+                                                objDetect.forEach((element) {
+                                                  print({
+                                                    "score": element?.score,
+                                                    "className":
+                                                        element?.className,
+                                                    "class":
+                                                        element?.classIndex,
+                                                    "rect": {
+                                                      "left":
+                                                          element?.rect.left,
+                                                      "top": element?.rect.top,
+                                                      "width":
+                                                          element?.rect.width,
+                                                      "height":
+                                                          element?.rect.height,
+                                                      "right":
+                                                          element?.rect.right,
+                                                      "bottom":
+                                                          element?.rect.bottom,
+                                                    },
+                                                  });
+                                                });
+                                                if (objDetect.length > 0) {
+                                                  showModalBottomSheet(
+                                                    isScrollControlled: true,
+                                                    context: context,
+                                                    builder: (ctx) => Builder(
+                                                        builder: (context) {
+                                                      return CropScreen(
+                                                        imageData:
+                                                            imageUint8ListData,
+                                                        objDetect: objDetect,
+                                                        finishCrop: () {
+                                                          Navigator.pop(
+                                                              context);
+                                                        },
+                                                        savingFileName:
+                                                            '${directory.path}/$currentUnix.$fileFormat',
+                                                      );
+                                                    }),
+                                                  );
+                                                }
 
                                                 refreshAlreadyCapturedImages();
                                               },
