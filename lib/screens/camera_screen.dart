@@ -1,6 +1,6 @@
 import 'dart:developer';
 import 'dart:io';
-import 'package:flutter_pytorch/pigeon.dart';
+import 'package:exercise/screens/painters/object_detector_painter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:camera/camera.dart';
@@ -9,17 +9,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_pytorch/pigeon.dart';
-import 'package:video_player/video_player.dart';
-import 'package:image_cropper/image_cropper.dart';
 import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
 import 'crop_screen.dart';
-import 'painters/object_detector_painter.dart';
-import 'package:flutter_pytorch/flutter_pytorch.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:gallery_saver/gallery_saver.dart';
-import 'package:flutter_storage_path/flutter_storage_path.dart';
-import 'package:crop_your_image/crop_your_image.dart';
 
 import '../main.dart';
 
@@ -30,15 +22,13 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen>
     with WidgetsBindingObserver {
-  late ModelObjectDetection _objectModel;
-  List<ResultObjectDetection?> objDetect = [];
-
   CameraController? controller;
-  VideoPlayerController? videoController;
-
+  late ObjectDetector _objectDetector;
+  bool _isBusy = false;
   File? _imageFile;
   File? _videoFile;
-
+  bool _canProcess = false;
+  CustomPaint? _customPaint;
   // Initial values
   bool _isCameraInitialized = false;
   bool _isCameraPermissionGranted = false;
@@ -67,23 +57,16 @@ class _CameraScreenState extends State<CameraScreen>
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
     getPermissionStatus();
     super.initState();
-    loadModel();
+    _initializeDetector(DetectionMode.single);
   }
 
-  //load your model
-  Future loadModel() async {
-    String pathObjectDetectionModel = "assets/models/yolov5s.torchscript";
-    try {
-      _objectModel = await FlutterPytorch.loadObjectDetectionModel(
-          pathObjectDetectionModel, 80, 640, 640,
-          labelPath: "assets/labels/labels_objectDetection_Coco.txt");
-    } catch (e) {
-      if (e is PlatformException) {
-        print("only supported for android, Error is $e");
-      } else {
-        print("Error is $e");
-      }
-    }
+  void _initializeDetector(DetectionMode mode) async {
+    print('Set detector in mode: $mode');
+
+    // uncomment next lines if you want to use the default model
+    final options = ObjectDetectorOptions(
+        mode: mode, classifyObjects: true, multipleObjects: true);
+    _objectDetector = ObjectDetector(options: options);
   }
 
   getPermissionStatus() async {
@@ -134,40 +117,6 @@ class _CameraScreenState extends State<CameraScreen>
     }
   }
 
-  // Add the below function inside your working class
-  Future _cropImage(
-      File imageFile, List<ResultObjectDetection?> recognitions) async {
-    if (imageFile != null) {
-      _objectModel.renderBoxesOnImage(imageFile, recognitions);
-      var rect = recognitions[0]!.rect;
-      CroppedFile? cropped = await ImageCropper().cropImage(
-        sourcePath: imageFile!.path,
-        aspectRatioPresets: [
-          CropAspectRatioPreset.square,
-          CropAspectRatioPreset.ratio3x2,
-          CropAspectRatioPreset.original,
-          CropAspectRatioPreset.ratio4x3,
-          CropAspectRatioPreset.ratio16x9
-        ],
-        uiSettings: [
-          AndroidUiSettings(
-            toolbarTitle: 'Crop',
-            cropGridColor: Colors.black,
-            initAspectRatio: CropAspectRatioPreset.original,
-            lockAspectRatio: false,
-          ),
-          IOSUiSettings(title: 'Crop')
-        ],
-      );
-
-      if (cropped != null) {
-        setState(() {
-          _imageFile = File(cropped.path);
-        });
-      }
-    }
-  }
-
   ImagePicker _picker = ImagePicker();
   Future<XFile?> takePicture() async {
     final CameraController? cameraController = controller;
@@ -178,8 +127,8 @@ class _CameraScreenState extends State<CameraScreen>
     }
 
     try {
-      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
-      // XFile image = await cameraController.takePicture();
+      // final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+      XFile image = await cameraController.takePicture();
       File imageFile = File(image!.path);
 
       return image;
@@ -249,6 +198,46 @@ class _CameraScreenState extends State<CameraScreen>
     }
   }
 
+  Future<void> processImage(InputImage inputImage, XFile? pickedFile) async {
+    // if (!_canProcess) return;
+    if (_isBusy) return;
+    _isBusy = true;
+
+    final objects = await _objectDetector.processImage(inputImage);
+    String text = 'Objects found: ${objects.length}\n\n';
+    for (final object in objects) {
+      text +=
+          'Object:  trackingId: ${object.trackingId} - ${object.labels.map((e) => e.text)}\n\n';
+      print("boundingBox ${object.boundingBox}");
+    }
+
+    File imageFile = File(pickedFile!.path);
+
+    var imageUint8ListData = await pickedFile.readAsBytes();
+    int currentUnix = DateTime.now().millisecondsSinceEpoch;
+
+    showModalBottomSheet(
+      isScrollControlled: true,
+      context: context,
+      builder: (ctx) => Builder(builder: (context) {
+        return CropScreen(
+          imageData: imageUint8ListData,
+          objDetect: objects,
+          finishCrop: () {
+            Navigator.pop(context);
+          },
+          savingFileName: '$currentUnix.${imageFile.path}',
+        );
+      }),
+    );
+
+    // TODO: set _customPaint to draw boundingRect on top of image
+    _isBusy = false;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   void onViewFinderTap(TapDownDetails details, BoxConstraints constraints) {
     if (controller == null) {
       return;
@@ -280,8 +269,9 @@ class _CameraScreenState extends State<CameraScreen>
 
   @override
   void dispose() {
+    _canProcess = false;
     controller?.dispose();
-    videoController?.dispose();
+    _objectDetector.close();
     super.dispose();
   }
 
@@ -334,35 +324,35 @@ class _CameraScreenState extends State<CameraScreen>
                                           left: 8.0,
                                           right: 8.0,
                                         ),
-                                        child: DropdownButton<ResolutionPreset>(
-                                          dropdownColor: Colors.black87,
-                                          underline: Container(),
-                                          value: currentResolutionPreset,
-                                          items: [
-                                            for (ResolutionPreset preset
-                                                in resolutionPresets)
-                                              DropdownMenuItem(
-                                                value: preset,
-                                                child: Text(
-                                                  preset
-                                                      .toString()
-                                                      .split('.')[1]
-                                                      .toUpperCase(),
-                                                  style: const TextStyle(
-                                                      color: Colors.white),
-                                                ),
-                                              )
-                                          ],
-                                          onChanged: (value) {
-                                            setState(() {
-                                              currentResolutionPreset = value!;
-                                              _isCameraInitialized = false;
-                                            });
-                                            onNewCameraSelected(
-                                                controller!.description);
-                                          },
-                                          hint: const Text("Select item"),
-                                        ),
+                                        // child: DropdownButton<ResolutionPreset>(
+                                        //   dropdownColor: Colors.black87,
+                                        //   underline: Container(),
+                                        //   value: currentResolutionPreset,
+                                        //   items: [
+                                        //     for (ResolutionPreset preset
+                                        //         in resolutionPresets)
+                                        //       DropdownMenuItem(
+                                        //         value: preset,
+                                        //         child: Text(
+                                        //           preset
+                                        //               .toString()
+                                        //               .split('.')[1]
+                                        //               .toUpperCase(),
+                                        //           style: const TextStyle(
+                                        //               color: Colors.white),
+                                        //         ),
+                                        //       )
+                                        //   ],
+                                        //   onChanged: (value) {
+                                        //     setState(() {
+                                        //       currentResolutionPreset = value!;
+                                        //       _isCameraInitialized = false;
+                                        //     });
+                                        //     onNewCameraSelected(
+                                        //         controller!.description);
+                                        //   },
+                                        //   hint: const Text("Select item"),
+                                        // ),
                                       ),
                                     ),
                                   ),
@@ -529,54 +519,31 @@ class _CameraScreenState extends State<CameraScreen>
                                                 var imageUint8ListData =
                                                     await rawImage
                                                         .readAsBytes();
-
-                                                objDetect = await _objectModel
-                                                    .getImagePredictionList(
-                                                        await rawImage
-                                                            .readAsBytes());
-                                                print("objDetect: $objDetect");
-                                                objDetect.forEach((element) {
-                                                  print({
-                                                    "score": element?.score,
-                                                    "className":
-                                                        element?.className,
-                                                    "class":
-                                                        element?.classIndex,
-                                                    "rect": {
-                                                      "left":
-                                                          element?.rect.left,
-                                                      "top": element?.rect.top,
-                                                      "width":
-                                                          element?.rect.width,
-                                                      "height":
-                                                          element?.rect.height,
-                                                      "right":
-                                                          element?.rect.right,
-                                                      "bottom":
-                                                          element?.rect.bottom,
-                                                    },
-                                                  });
-                                                });
-                                                if (objDetect.length > 0) {
-                                                  showModalBottomSheet(
-                                                    isScrollControlled: true,
-                                                    context: context,
-                                                    builder: (ctx) => Builder(
-                                                        builder: (context) {
-                                                      return CropScreen(
-                                                        imageData:
-                                                            imageUint8ListData,
-                                                        objDetect: objDetect,
-                                                        finishCrop: () {
-                                                          Navigator.pop(
-                                                              context);
-                                                        },
-                                                        savingFileName:
-                                                            '${directory.path}/$currentUnix.$fileFormat',
-                                                      );
-                                                    }),
-                                                  );
-                                                }
+                                                final inputImage =
+                                                    InputImage.fromFilePath(
+                                                        rawImage.path);
+                                                processImage(
+                                                    inputImage, rawImage);
+                                                // if (objDetect.length > 0) {
+                                                //   showModalBottomSheet(
+                                                //     isScrollControlled: true,
+                                                //     context: context,
+                                                //     builder: (ctx) => Builder(
+                                                //         builder: (context) {
+                                                //       return CropScreen(
+                                                //         imageData:
+                                                //             imageUint8ListData,
+                                                //         objDetect: objDetect,
+                                                //         finishCrop: () {
+                                                //           Navigator.pop(
+                                                //               context);
+                                                //         },
+                                                //         savingFileName:
+                                                //             '${directory.path}/$currentUnix.$fileFormat',
+                                                //       );
+                                                //     }),
+                                                //   );
+                                                // }
 
                                                 refreshAlreadyCapturedImages();
                                               },
@@ -642,22 +609,6 @@ class _CameraScreenState extends State<CameraScreen>
                                                   )
                                                 : null,
                                           ),
-                                          child: videoController != null &&
-                                                  videoController!
-                                                      .value.isInitialized
-                                              ? ClipRRect(
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                          8.0),
-                                                  child: AspectRatio(
-                                                    aspectRatio:
-                                                        videoController!
-                                                            .value.aspectRatio,
-                                                    child: VideoPlayer(
-                                                        videoController!),
-                                                  ),
-                                                )
-                                              : Container(),
                                         ),
                                       ),
                                     ],

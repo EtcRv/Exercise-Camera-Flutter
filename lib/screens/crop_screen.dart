@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:crop_your_image/crop_your_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_pytorch/pigeon.dart';
 import 'package:gallery_saver/gallery_saver.dart';
+import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
 
 class CropScreen extends StatefulWidget {
   CropScreen({
@@ -15,9 +15,9 @@ class CropScreen extends StatefulWidget {
     required this.savingFileName,
   });
   var imageData;
-  List<ResultObjectDetection?> objDetect;
   void Function() finishCrop;
   String savingFileName;
+  List<DetectedObject> objDetect;
 
   @override
   State<CropScreen> createState() {
@@ -37,23 +37,17 @@ class _CropScreenState extends State<CropScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.cut),
-            onPressed: () {
+            onPressed: () async {
               setState(() {
                 _isProcessing = true;
               });
               _controller_crop.crop();
+              // File picture = await File(widget.savingFileName).create();
+              // picture.writeAsBytesSync(List.from(_croppedData!));
+              // GallerySaver.saveImage(picture.path);
+              // widget.finishCrop();
             },
           ),
-          IconButton(
-              onPressed: () async {
-                if (_croppedData != null) {
-                  File picture = await File(widget.savingFileName).create();
-                  picture.writeAsBytesSync(List.from(_croppedData!));
-                  GallerySaver.saveImage(picture.path);
-                  widget.finishCrop();
-                }
-              },
-              icon: Icon(Icons.check))
         ],
         title: Text(
           'Screen Crop',
@@ -80,12 +74,7 @@ class _CropScreenState extends State<CropScreen> {
                       },
                     );
                   },
-                  initialArea: Rect.fromLTWH(
-                    widget.objDetect[0]!.rect.left * factorX,
-                    widget.objDetect[0]!.rect.top * factorY,
-                    widget.objDetect[0]!.rect.width * factorX,
-                    widget.objDetect[0]!.rect.height * factorY,
-                  ),
+                  initialArea: widget.objDetect[0].boundingBox,
                 ),
                 replacement: _croppedData != null
                     ? SizedBox(

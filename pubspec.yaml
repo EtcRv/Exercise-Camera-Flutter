@@ -39,14 +39,11 @@ dependencies:
   path_provider: ^2.0.15
   path: ^1.8.3
   permission_handler: ^10.2.0
-  video_player: ^2.6.1
   image_cropper: ^3.0.1
   image: ^4.0.6
   google_mlkit_object_detection: ^0.7.0
   google_mlkit_commons: ^0.3.0
-  flutter_pytorch: ^1.0.1
   gallery_saver: ^2.3.2
-  flutter_storage_path: ^1.0.4
   crop_your_image: ^0.7.4
 
 dev_dependencies:
@@ -71,9 +68,9 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  assets:
-    - assets/labels/
-    - assets/models/
+  # assets:
+  #   - assets/labels/
+  #   - assets/models/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
