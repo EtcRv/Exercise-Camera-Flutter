@@ -1,21 +1,20 @@
 import 'dart:developer';
 import 'dart:io';
-import 'package:exercise/screens/painters/object_detector_painter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:camera/camera.dart';
-import 'package:exercise/screens/preview_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
 import 'crop_screen.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../main.dart';
 
 class CameraScreen extends StatefulWidget {
+  const CameraScreen({super.key});
+
   @override
   _CameraScreenState createState() => _CameraScreenState();
 }
@@ -25,16 +24,12 @@ class _CameraScreenState extends State<CameraScreen>
   CameraController? controller;
   late ObjectDetector _objectDetector;
   bool _isBusy = false;
-  File? _imageFile;
-  File? _videoFile;
   bool _canProcess = false;
   CustomPaint? _customPaint;
   // Initial values
   bool _isCameraInitialized = false;
   bool _isCameraPermissionGranted = false;
   bool _isRearCameraSelected = true;
-  bool _isVideoCameraSelected = false;
-  bool _isRecordingInProgress = false;
   double _minAvailableExposureOffset = 0.0;
   double _maxAvailableExposureOffset = 0.0;
   double _minAvailableZoom = 1.0;
@@ -86,44 +81,11 @@ class _CameraScreenState extends State<CameraScreen>
       });
       // Set and initialize the new camera
       onNewCameraSelected(cameras[0]);
-      refreshAlreadyCapturedImages();
     } else {
       log('Camera Permission: DENIED');
     }
   }
 
-  refreshAlreadyCapturedImages() async {
-    final directory = await getApplicationDocumentsDirectory();
-    List<FileSystemEntity> fileList = await directory.list().toList();
-    allFileList.clear();
-    List<Map<int, dynamic>> fileNames = [];
-
-    for (var file in fileList) {
-      if (file.path.contains('.jpg') || file.path.contains('.mp4')) {
-        allFileList.add(File(file.path));
-
-        String name = file.path.split('/').last.split('.').first;
-        fileNames.add({0: int.parse(name), 1: file.path.split('/').last});
-      }
-    }
-
-    if (fileNames.isNotEmpty) {
-      final recentFile =
-          fileNames.reduce((curr, next) => curr[0] > next[0] ? curr : next);
-      String recentFileName = recentFile[1];
-      if (recentFileName.contains('.mp4')) {
-        _videoFile = File('${directory.path}/$recentFileName');
-        _imageFile = null;
-      } else {
-        _imageFile = File('${directory.path}/$recentFileName');
-        _videoFile = null;
-      }
-
-      setState(() {});
-    }
-  }
-
-  ImagePicker _picker = ImagePicker();
   Future<XFile?> takePicture() async {
     final CameraController? cameraController = controller;
 
@@ -359,52 +321,6 @@ class _CameraScreenState extends State<CameraScreen>
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
-                                  Align(
-                                    alignment: Alignment.topRight,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.black87,
-                                        borderRadius:
-                                            BorderRadius.circular(10.0),
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(
-                                          left: 8.0,
-                                          right: 8.0,
-                                        ),
-                                        // child: DropdownButton<ResolutionPreset>(
-                                        //   dropdownColor: Colors.black87,
-                                        //   underline: Container(),
-                                        //   value: currentResolutionPreset,
-                                        //   items: [
-                                        //     for (ResolutionPreset preset
-                                        //         in resolutionPresets)
-                                        //       DropdownMenuItem(
-                                        //         value: preset,
-                                        //         child: Text(
-                                        //           preset
-                                        //               .toString()
-                                        //               .split('.')[1]
-                                        //               .toUpperCase(),
-                                        //           style: const TextStyle(
-                                        //               color: Colors.white),
-                                        //         ),
-                                        //       )
-                                        //   ],
-                                        //   onChanged: (value) {
-                                        //     setState(() {
-                                        //       currentResolutionPreset = value!;
-                                        //       _isCameraInitialized = false;
-                                        //     });
-                                        //     onNewCameraSelected(
-                                        //         controller!.description);
-                                        //   },
-                                        //   hint: const Text("Select item"),
-                                        // ),
-                                      ),
-                                    ),
-                                  ),
-                                  // Spacer(),
                                   Padding(
                                     padding: const EdgeInsets.only(
                                         right: 8.0, top: 16.0),
@@ -490,9 +406,7 @@ class _CameraScreenState extends State<CameraScreen>
                                         MainAxisAlignment.spaceBetween,
                                     children: [
                                       InkWell(
-                                        onTap: _isRecordingInProgress
-                                            ? () async {}
-                                            : () {
+                                        onTap: () {
                                                 setState(() {
                                                   _isCameraInitialized = false;
                                                 });
@@ -513,20 +427,7 @@ class _CameraScreenState extends State<CameraScreen>
                                               color: Colors.black38,
                                               size: 60,
                                             ),
-                                            _isRecordingInProgress
-                                                ? controller!
-                                                        .value.isRecordingPaused
-                                                    ? const Icon(
-                                                        Icons.play_arrow,
-                                                        color: Colors.white,
-                                                        size: 30,
-                                                      )
-                                                    : const Icon(
-                                                        Icons.pause,
-                                                        color: Colors.white,
-                                                        size: 30,
-                                                      )
-                                                : Icon(
+                                        Icon(
                                                     _isRearCameraSelected
                                                         ? Icons.camera_front
                                                         : Icons.camera_rear,
@@ -537,9 +438,7 @@ class _CameraScreenState extends State<CameraScreen>
                                         ),
                                       ),
                                       InkWell(
-                                        onTap: _isVideoCameraSelected
-                                            ? () async {}
-                                            : () async {
+                                        onTap: () async {
                                                 XFile? rawImage =
                                                     await takePicture();
                                                 File imageFile =
@@ -564,99 +463,34 @@ class _CameraScreenState extends State<CameraScreen>
                                                   '${directory.path}/$currentUnix.$fileFormat',
                                                 );
 
-                                                var imageUint8ListData =
-                                                    await rawImage
-                                                        .readAsBytes();
                                                 final inputImage =
                                                     InputImage.fromFilePath(
                                                         rawImage.path);
                                                 processImage(
                                                     inputImage, rawImage);
-                                                // if (objDetect.length > 0) {
-                                                //   showModalBottomSheet(
-                                                //     isScrollControlled: true,
-                                                //     context: context,
-                                                //     builder: (ctx) => Builder(
-                                                //         builder: (context) {
-                                                //       return CropScreen(
-                                                //         imageData:
-                                                //             imageUint8ListData,
-                                                //         objDetect: objDetect,
-                                                //         finishCrop: () {
-                                                //           Navigator.pop(
-                                                //               context);
-                                                //         },
-                                                //         savingFileName:
-                                                //             '${directory.path}/$currentUnix.$fileFormat',
-                                                //       );
-                                                //     }),
-                                                //   );
-                                                // }
-
-                                                refreshAlreadyCapturedImages();
                                               },
                                         child: Stack(
                                           alignment: Alignment.center,
                                           children: [
-                                            Icon(
+                                            const Icon(
                                               Icons.circle,
-                                              color: _isVideoCameraSelected
-                                                  ? Colors.white
-                                                  : Colors.white38,
+                                              color:  Colors.white38,
                                               size: 80,
                                             ),
-                                            Icon(
+                                            const Icon(
                                               Icons.circle,
-                                              color: _isVideoCameraSelected
-                                                  ? Colors.red
-                                                  : Colors.white,
+                                              color: Colors.white,
                                               size: 65,
                                             ),
-                                            _isVideoCameraSelected &&
-                                                    _isRecordingInProgress
-                                                ? const Icon(
-                                                    Icons.stop_rounded,
-                                                    color: Colors.white,
-                                                    size: 32,
-                                                  )
-                                                : Container(),
+                                            Container(),
                                           ],
                                         ),
                                       ),
-                                      InkWell(
-                                        onTap: _imageFile != null ||
-                                                _videoFile != null
-                                            ? () {
-                                                Navigator.of(context).push(
-                                                  MaterialPageRoute(
-                                                    builder: (context) =>
-                                                        PreviewScreen(
-                                                      imageFile: _imageFile!,
-                                                      fileList: allFileList,
-                                                    ),
-                                                  ),
-                                                );
-                                              }
-                                            : null,
-                                        child: Container(
+                                      const InkWell(
+                                        onTap: null,
+                                        child: SizedBox(
                                           width: 60,
                                           height: 60,
-                                          decoration: BoxDecoration(
-                                            color: Colors.black,
-                                            borderRadius:
-                                                BorderRadius.circular(10.0),
-                                            border: Border.all(
-                                              color: Colors.white,
-                                              width: 2,
-                                            ),
-                                            image: _imageFile != null
-                                                ? DecorationImage(
-                                                    image:
-                                                        FileImage(_imageFile!),
-                                                    fit: BoxFit.cover,
-                                                  )
-                                                : null,
-                                          ),
                                         ),
                                       ),
                                     ],
