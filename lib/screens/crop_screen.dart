@@ -32,6 +32,7 @@ class _CropScreenState extends State<CropScreen> {
 
   @override
   Widget build(BuildContext context) {
+    print("widget.objects: ${widget.objDetect}");
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -74,7 +75,9 @@ class _CropScreenState extends State<CropScreen> {
                       },
                     );
                   },
-                  initialArea: widget.objDetect[0].boundingBox,
+                  initialArea: widget.objDetect.length != 0
+                      ? widget.objDetect[0].boundingBox
+                      : Rect.fromLTWH(20, 212, 600, 600),
                 ),
                 replacement: _croppedData != null
                     ? SizedBox(

@@ -57,7 +57,7 @@ class _CameraScreenState extends State<CameraScreen>
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
     getPermissionStatus();
     super.initState();
-    _initializeDetector(DetectionMode.single);
+    _initializeDetector(DetectionMode.stream);
   }
 
   void _initializeDetector(DetectionMode mode) async {
@@ -67,6 +67,12 @@ class _CameraScreenState extends State<CameraScreen>
     final options = ObjectDetectorOptions(
         mode: mode, classifyObjects: true, multipleObjects: true);
     _objectDetector = ObjectDetector(options: options);
+  }
+
+  void _processCameraImage(CameraImage image) {
+    final inputImage = _inputImageFromCameraImage(image);
+    print("inputImage: ${inputImage}");
+    processImage(inputImage!, null);
   }
 
   getPermissionStatus() async {
@@ -184,6 +190,7 @@ class _CameraScreenState extends State<CameraScreen>
         cameraController
             .getMinZoomLevel()
             .then((value) => _minAvailableZoom = value),
+        cameraController.startImageStream(_processCameraImage),
       ]);
 
       _currentFlashMode = controller!.value.flashMode;
@@ -211,31 +218,72 @@ class _CameraScreenState extends State<CameraScreen>
       print("boundingBox ${object.boundingBox}");
     }
 
-    File imageFile = File(pickedFile!.path);
+    if(pickedFile != null) {
 
-    var imageUint8ListData = await pickedFile.readAsBytes();
-    int currentUnix = DateTime.now().millisecondsSinceEpoch;
+      File imageFile = File(pickedFile!.path);
 
-    showModalBottomSheet(
-      isScrollControlled: true,
-      context: context,
-      builder: (ctx) => Builder(builder: (context) {
-        return CropScreen(
-          imageData: imageUint8ListData,
-          objDetect: objects,
-          finishCrop: () {
-            Navigator.pop(context);
-          },
-          savingFileName: '$currentUnix.${imageFile.path}',
-        );
-      }),
-    );
+      var imageUint8ListData = await pickedFile.readAsBytes();
+      print("imageUint8ListData: $imageUint8ListData");
+      int currentUnix = DateTime.now().millisecondsSinceEpoch;
+
+      showModalBottomSheet(
+        isScrollControlled: true,
+        context: context,
+        builder: (ctx) => Builder(builder: (context) {
+          return CropScreen(
+            imageData: imageUint8ListData,
+            objDetect: objects,
+            finishCrop: () {
+              Navigator.pop(context);
+            },
+            savingFileName: '$currentUnix.${imageFile.path}',
+          );
+        }),
+      );
+    }
+
 
     // TODO: set _customPaint to draw boundingRect on top of image
     _isBusy = false;
     if (mounted) {
       setState(() {});
     }
+  }
+
+  InputImage? _inputImageFromCameraImage(CameraImage image) {
+    // get camera rotation
+    final camera = cameras[_isRearCameraSelected ? 1 : 0];
+    final rotation =
+        InputImageRotationValue.fromRawValue(camera.sensorOrientation);
+    if (rotation == null) return null;
+
+    // get image format
+    final format = InputImageFormatValue.fromRawValue(image.format.raw);
+    // validate format depending on platform
+    // only supported formats:
+    // * nv21 for Android
+    // * bgra8888 for iOS
+    if (format == null ||
+        (Platform.isAndroid && format != InputImageFormat.nv21) ||
+        (Platform.isIOS && format != InputImageFormat.bgra8888)) return null;
+
+    // since format is constraint to nv21 or bgra8888, both only have one plane
+    if (image.planes.length != 1) return null;
+    final plane = image.planes.first;
+
+    // compose InputImage using bytes
+    return InputImage.fromBytes(
+      bytes: plane.bytes,
+      inputImageData: InputImageData(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        imageRotation: rotation, // used only in Android
+        inputImageFormat: format, // used only in iOS
+        planeData: image.planes
+            .map((plane) =>
+                InputImagePlaneMetadata(bytesPerRow: plane.bytesPerRow))
+            .toList(), // used only in iOS
+      ),
+    );
   }
 
   void onViewFinderTap(TapDownDetails details, BoxConstraints constraints) {
